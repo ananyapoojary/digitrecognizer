@@ -1,10 +1,12 @@
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
+import cv2
+import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
 
-# ✅ Load the trained model
+# ✅ Define the CNN Model
 class DigitRecognizerCNN(nn.Module):
     def __init__(self):
         super(DigitRecognizerCNN, self).__init__()
@@ -26,17 +28,15 @@ class DigitRecognizerCNN(nn.Module):
     def forward(self, x):
         return self.main(x)
 
-# Load model
+# ✅ Load Model
 model = DigitRecognizerCNN()
 model_path = "model/digitRecognizer.pth"
-
 checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
-model.load_state_dict(checkpoint['model'], strict=False)  # ✅ Ignore extra/missing keys
-
+model.load_state_dict(checkpoint['model'], strict=False)
 model.eval()
-print("Model loaded successfully!")
+print("✅ Model loaded successfully!")
 
-# ✅ Define image preprocessing
+# ✅ Define Image Preprocessing
 transform = transforms.Compose([
     transforms.Grayscale(num_output_channels=1),
     transforms.Resize((28, 28)),
@@ -44,28 +44,86 @@ transform = transforms.Compose([
     transforms.Normalize((0.5,), (0.5,))
 ])
 
-def preprocess_image(image_path):
-    """Load and preprocess an image"""
-    image = Image.open(image_path).convert("L")  # Convert to grayscale
-    image = transform(image)
-    image = image.unsqueeze(0)  # Add batch dimension
-    return image
+def preprocess_digit(digit_img):
+    """Resize and normalize a single digit image before passing to CNN"""
+    digit_img = Image.fromarray(digit_img)  # Convert to PIL image
+    digit_img = transform(digit_img)  # Apply transformations
+    digit_img = digit_img.unsqueeze(0)  # Add batch dimension
+    return digit_img
 
-def predict_digit(image_path):
-    """Predict digit from an image"""
-    image = preprocess_image(image_path)
+def predict_digit(digit_img):
+    """Classify a single digit"""
     with torch.no_grad():
-        output = model(image)
+        output = model(digit_img)
         prediction = torch.argmax(output, dim=1).item()
     return prediction
 
-# ✅ Run the prediction on a test image
-image_path = "images/test_digit.png"  # Change if needed
-predicted_digit = predict_digit(image_path)
-print(f"🧠 Predicted Digit: {predicted_digit}")
+import os
 
-# ✅ Display the image with the predicted digit
-img = Image.open(image_path)
-plt.imshow(img, cmap="gray")
-plt.title(f"Predicted Digit: {predicted_digit}")
-plt.show()
+image_path = "images/multi_digit.png"
+
+if not os.path.exists(image_path):
+    print(f"❌ Error: Image file '{image_path}' not found!")
+else:
+    print(f"✅ Image file '{image_path}' found.")
+
+
+# ✅ Detect and Segment Digits
+def segment_and_classify(image_path):
+    """Detect, extract, and classify multiple digits in an image."""
+    # Load image in grayscale
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+
+    # Apply thresholding to make the digits more visible
+    _, thresh = cv2.threshold(image, 128, 255, cv2.THRESH_BINARY_INV)
+
+    # Find contours (possible digit regions)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    digit_predictions = []  # Store digit predictions
+    bounding_boxes = []  # Store bounding boxes for sorting
+
+    # Loop through detected contours
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+
+        # Ignore small regions (noise)
+        if w < 10 or h < 10:
+            continue
+
+        # Extract the digit region
+        digit = thresh[y:y+h, x:x+w]
+
+        # Resize to 28x28 for the CNN model
+        digit_resized = cv2.resize(digit, (28, 28), interpolation=cv2.INTER_AREA)
+
+        # Predict digit
+        processed_digit = preprocess_digit(digit_resized)
+        predicted_digit = predict_digit(processed_digit)
+
+        # Store predictions and bounding boxes
+        digit_predictions.append((x, predicted_digit))
+        bounding_boxes.append((x, y, w, h))
+
+    # Sort digits by x-coordinate (left to right)
+    digit_predictions.sort()
+
+    # ✅ Display Results
+    output_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    for (x, y, w, h), (_, digit) in zip(bounding_boxes, digit_predictions):
+        cv2.rectangle(output_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        cv2.putText(output_image, str(digit), (x, y - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+    # Save and show the result
+    cv2.imwrite("output.png", output_image)
+    plt.imshow(output_image, cmap="gray")
+    plt.title(f"Predicted Digits: {''.join(str(d) for _, d in digit_predictions)}")
+    plt.show()
+
+    return ''.join(str(d) for _, d in digit_predictions)
+
+# ✅ Run Prediction
+image_path = "images/multi_digit.png"  # Change to your multi-digit image
+predicted_digits = segment_and_classify(image_path)
+print(f"🔢 Predicted Number: {predicted_digits}")
