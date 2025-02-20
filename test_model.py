@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
+import os
 
 # ✅ Define the CNN Model
 class DigitRecognizerCNN(nn.Module):
@@ -22,7 +23,7 @@ class DigitRecognizerCNN(nn.Module):
             nn.Flatten(),
             nn.Linear(64 * 7 * 7, 128),
             nn.ReLU(),
-            nn.Linear(128, 10)
+            nn.Linear(128, 10)  # 10 output classes (digits 0-9)
         )
 
     def forward(self, x):
@@ -31,6 +32,11 @@ class DigitRecognizerCNN(nn.Module):
 # ✅ Load Model
 model = DigitRecognizerCNN()
 model_path = "model/digitRecognizer.pth"
+
+# Ensure model file exists
+if not os.path.exists(model_path):
+    raise FileNotFoundError(f"❌ Model file '{model_path}' not found!")
+
 checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
 model.load_state_dict(checkpoint['model'], strict=False)
 model.eval()
@@ -58,24 +64,20 @@ def predict_digit(digit_img):
         prediction = torch.argmax(output, dim=1).item()
     return prediction
 
-import os
-
-image_path = "images/multi_digit.png"
-
-if not os.path.exists(image_path):
-    print(f"❌ Error: Image file '{image_path}' not found!")
-else:
-    print(f"✅ Image file '{image_path}' found.")
-
-
 # ✅ Detect and Segment Digits
 def segment_and_classify(image_path):
     """Detect, extract, and classify multiple digits in an image."""
+    if not os.path.exists(image_path):
+        raise FileNotFoundError(f"❌ Image file '{image_path}' not found!")
+    
+    print(f"✅ Image file '{image_path}' found.")
+
     # Load image in grayscale
     image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
 
-    # Apply thresholding to make the digits more visible
-    _, thresh = cv2.threshold(image, 128, 255, cv2.THRESH_BINARY_INV)
+    # Apply adaptive thresholding for better digit detection
+    thresh = cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                   cv2.THRESH_BINARY_INV, 11, 3)
 
     # Find contours (possible digit regions)
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -87,7 +89,7 @@ def segment_and_classify(image_path):
     for contour in contours:
         x, y, w, h = cv2.boundingRect(contour)
 
-        # Ignore small regions (noise)
+        # Ignore small regions (noise) and non-digit-like shapes
         if w < 10 or h < 10:
             continue
 
@@ -116,9 +118,13 @@ def segment_and_classify(image_path):
                     cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
     # Save and show the result
-    cv2.imwrite("output.png", output_image)
-    plt.imshow(output_image, cmap="gray")
+    output_path = "output.png"
+    cv2.imwrite(output_path, output_image)
+    print(f"📸 Output saved as '{output_path}'")
+
+    plt.imshow(cv2.cvtColor(output_image, cv2.COLOR_BGR2RGB))
     plt.title(f"Predicted Digits: {''.join(str(d) for _, d in digit_predictions)}")
+    plt.axis("off")
     plt.show()
 
     return ''.join(str(d) for _, d in digit_predictions)
