@@ -130,6 +130,6 @@ def segment_and_classify(image_path):
     return ''.join(str(d) for _, d in digit_predictions)
 
 # ✅ Run Prediction
-image_path = "images/multi_digit.png"  # Change to your multi-digit image
+image_path = "images/multi_digit4.png"  # Change to your multi-digit image
 predicted_digits = segment_and_classify(image_path)
 print(f"🔢 Predicted Number: {predicted_digits}")
